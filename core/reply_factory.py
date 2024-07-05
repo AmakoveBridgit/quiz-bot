@@ -1,6 +1,4 @@
-
 from .constants import BOT_WELCOME_MESSAGE, PYTHON_QUESTION_LIST
-
 
 def generate_bot_responses(message, session):
     bot_responses = []
@@ -8,6 +6,11 @@ def generate_bot_responses(message, session):
     current_question_id = session.get("current_question_id")
     if not current_question_id:
         bot_responses.append(BOT_WELCOME_MESSAGE)
+        next_question, next_question_id = get_next_question(None)
+        bot_responses.append(next_question)
+        session["current_question_id"] = next_question_id
+        session.save()
+        return bot_responses
 
     success, error = record_current_answer(message, current_question_id, session)
 
@@ -21,6 +24,7 @@ def generate_bot_responses(message, session):
     else:
         final_response = generate_final_response(session)
         bot_responses.append(final_response)
+        session.pop("current_question_id", None)
 
     session["current_question_id"] = next_question_id
     session.save()
@@ -29,18 +33,35 @@ def generate_bot_responses(message, session):
 
 
 def record_current_answer(answer, current_question_id, session):
-    '''
-    Validates and stores the answer for the current question to django session.
-    '''
-    return True, ""
+    if 'quiz_answers' not in session:
+        session['quiz_answers'] = {}
+
+    if not isinstance(answer, str):
+        return False, "Invalid answer format. Answer must be a string."
+
+    if current_question_id is None or not isinstance(current_question_id, int):
+        return False, "Invalid question ID format. Question ID must be an integer."
+
+    session['quiz_answers'][current_question_id] = answer
+    session.modified = True
+
+    return True, "Answer recorded successfully."
 
 
 def get_next_question(current_question_id):
     '''
     Fetches the next question from the PYTHON_QUESTION_LIST based on the current_question_id.
     '''
+    if current_question_id is None:
+        next_question_id = 0
+    else:
+        next_question_id = current_question_id + 1
 
-    return "dummy question", -1
+    if next_question_id < len(PYTHON_QUESTION_LIST):
+        next_question = PYTHON_QUESTION_LIST[next_question_id]
+        return next_question, next_question_id
+    else:
+        return None, None
 
 
 def generate_final_response(session):
@@ -48,5 +69,15 @@ def generate_final_response(session):
     Creates a final result message including a score based on the answers
     by the user for questions in the PYTHON_QUESTION_LIST.
     '''
+    answers = session.get('quiz_answers', {})
+    score = 0
 
-    return "dummy result"
+    for question_id, user_answer in answers.items():
+        correct_answer = PYTHON_QUESTION_LIST[question_id].get('correct_answer')
+        if user_answer.lower() == correct_answer.lower():
+            score += 1
+
+    total_questions = len(PYTHON_QUESTION_LIST)
+    final_response = f"You've completed the quiz! Your score is {score} out of {total_questions}."
+    
+    return final_response
